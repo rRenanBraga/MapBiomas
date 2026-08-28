@@ -78,7 +78,6 @@ WHERE ti.uf_sigla = 'RO'
 7 - Buffer
 
 
-
 with uc as (
 select st_buffer(geom, 0.009) as geom_buffer
 from bases_auxiliares.mma_cnuc_unidade_conservacao
