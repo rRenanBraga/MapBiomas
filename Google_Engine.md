@@ -31,6 +31,32 @@ Export.image.toDrive({
 
 2
 
+
+// 1. Carregar a coleção Sentinel-2 (Surface Reflectance)
+var s2 = ee.ImageCollection('COPERNICUS/S2_SR')
+    .filterDate('2025-08-01', '2025-08-28')
+    .filterBounds(geometry)
+    .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20));
+ 
+// 2. Aplicar máscara de nuvens (por QA60 ou SCL) e criar composite
+var composite = s2.median()
+    .select(['B4', 'B3', 'B2']); // R, G, B
+ 
+// 3. Exibir com visualização em cores reais
+var visParams = {
+  bands: ['B4', 'B3', 'B2'],
+  min: 0,
+  max: 3000, // ajuste conforme necessário
+};
+Map.addLayer(composite, visParams, 'True Color');
+
+
+
+3
+
+
+
+
 Coordenadas do centro de Guajará-Mirim (RO)
 var porto = ee.Geometry.Point([-63.9039, -8.7618]);
  
@@ -99,3 +125,99 @@ Export.image.toDrive({
   scale: 30,
   fileFormat: 'GeoTIFF'
 });
+
+
+
+
+4 - classificação supervisionada
+
+
+var colecao = ee.ImageCollection('LANDSAT/LT05/C02/T1_L2').filterBounds(poligono)
+              .filterDate('2009-07-01', '2009-12-31').sort('CLOUD_COVER') 
+var imagem = ee.Image('LANDSAT/LT05/C02/T1_L2/LT05_233067_20090807')          
+var rec_imagem = imagem.clip(poligono)
+var visParams = {
+ 
+  bands: ['SR_B5', 'SR_B4', 'SR_B3'],
+ 
+  min: 3000,
+ 
+  max: 20000,
+ 
+  gamma: 1.4
+ 
+};
+ 
+var bandas = ['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7'];
+ 
+var amostras = florestal.merge(nao_florestal).merge(vegetado); 
+var validacao = v_florestal.merge(v_nao_florestal).merge(v_vegetado)
+ 
+var treinamento = rec_imagem.select(bandas).sampleRegions({
+  collection:amostras,
+  properties:['class'],
+  scale:30
+});
+ 
+ 
+var class2008 = ee.Classifier.smileCart().train({
+  features:treinamento,
+  classProperty:'class'
+})
+ 
+var imagemClassificada = rec_imagem.classify(class2008)
+ 
+ 
+var validacao08 = imagemClassificada.sampleRegions({
+  collection: validacao,
+  properties:['class'],
+  scale:30,
+});
+ 
+print(validacao08)
+var acuracia = validacao08.errorMatrix('class','classification');
+print(acuracia)
+print('Acurácia geral de validação: ', acuracia.accuracy());
+var kappa = acuracia.kappa();
+print('Training Kappa', kappa);
+ 
+var paletaDeCores = [ 
+  '#006400', // Floresta (Verde escuro) 
+  '#FF0000', // Solo Exposto / Desmatamento (Vermelho) 
+  '#90EE90'  // Vegetação rala / Verde claro
+];
+ 
+Map.addLayer(imagemClassificada, {min: 0, max: 2, palette: paletaDeCores}, 'Classificação (Cena Inteira)');
+
+Map.addLayer(rec_imagem, visParams, 'Cena Inteira Landsat 5 - 2008');
+ 
+ 
+/////////////////////////////////////
+ 
+ 
+var escala = 30;
+ 
+ 
+var areaPorPixel = ee.Image.pixelArea().divide(10000);
+ 
+ 
+var areaClassificada = ee.Image.cat(areaPorPixel, imagemClassificada);
+ 
+ 
+var areas = areaClassificada.reduceRegion({
+  reducer: ee.Reducer.sum().group({
+    groupField: 1,  
+    groupName: 'class'
+  }),
+  geometry: poligono,
+  scale: escala,
+  maxPixels: 1e13
+});
+ 
+ 
+print('Área por classe (ha):', areas);
+Map.centerObject(rec_imagem, 8);
+
+
+
+
